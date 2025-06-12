@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"io"
 	"log"
 	"net/http"
 )
@@ -25,22 +24,6 @@ func marshalJson(res interface{}) []byte {
 		log.Printf("Unable to marshal the request: %s ", res)
 	}
 	return data
-}
-
-func unmarshalJson(req *http.Request) jsonBody {
-	reqBody := jsonBody{Body: ""}
-
-	data, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.Printf("Unable to read the request body: %s %s", req.Method, req.URL.Path)
-	}
-
-	err = json.Unmarshal(data, &reqBody)
-	if err != nil {
-		log.Printf("Unable to unmarshal the request: %s %s", req.Method, req.URL.Path)
-	}
-
-	return reqBody
 }
 
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
