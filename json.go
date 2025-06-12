@@ -6,16 +6,8 @@ import (
 	"net/http"
 )
 
-type jsonBody struct {
-	Body string `json:"body"`
-}
-
 type jsonError struct {
 	JsonError string `json:"error"`
-}
-
-type jsonCleaned struct {
-	CleanedBody string `json:"cleaned_body"`
 }
 
 func marshalJson(res interface{}) []byte {

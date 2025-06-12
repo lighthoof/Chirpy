@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/google/uuid"
 	"github.com/lighthoof/Chirpy/internal/database"
 )
 
@@ -105,14 +106,14 @@ func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, req *http.Reques
 			return
 		}
 
-		chirp := Chirp{
+		respBody := Chirp{
 			ID:        chirpDb.ID,
 			CreatedAt: chirpDb.CreatedAt,
 			UpdatedAt: chirpDb.UpdatedAt,
 			Body:      chirpDb.Body,
 			UserID:    chirpDb.UserID,
 		}
-		respondWithJSON(w, http.StatusCreated, chirp)
+		respondWithJSON(w, http.StatusCreated, respBody)
 
 	} else if len(reqBody.Body) > 140 {
 		respondWithError(w, http.StatusBadRequest, "Chirp is too long")
@@ -138,6 +139,30 @@ func (cfg *apiConfig) getChirpsHandler(w http.ResponseWriter, req *http.Request)
 			UserID:    chirpDb.UserID,
 		}
 		respBody = append(respBody, chirp)
+	}
+
+	respondWithJSON(w, http.StatusOK, respBody)
+}
+
+func (cfg *apiConfig) getChirpByIdHandler(w http.ResponseWriter, req *http.Request) {
+	chirpID, err := uuid.Parse(req.PathValue("chirpID"))
+	if err != nil {
+		log.Printf("Unable to parse chirpID: %s", req.PathValue("chirpID"))
+		return
+	}
+
+	chirpDb, err := cfg.dbQueries.GetChirpById(req.Context(), chirpID)
+	if err != nil {
+		log.Printf("Unable to retrieve chirps")
+		return
+	}
+
+	respBody := Chirp{
+		ID:        chirpDb.ID,
+		CreatedAt: chirpDb.CreatedAt,
+		UpdatedAt: chirpDb.UpdatedAt,
+		Body:      chirpDb.Body,
+		UserID:    chirpDb.UserID,
 	}
 
 	respondWithJSON(w, http.StatusOK, respBody)
