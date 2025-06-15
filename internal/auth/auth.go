@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
@@ -38,7 +40,7 @@ func MakeJWT(userID uuid.UUID, tokenSecret string, expiresIn time.Duration) (str
 	return signedToken, nil
 }
 
-func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
+func ValidateJWT(tokenString, tokenSecret string) (userID uuid.UUID, err error) {
 	claims := jwt.RegisteredClaims{}
 	token, err := jwt.ParseWithClaims(tokenString, &claims,
 		func(token *jwt.Token) (interface{}, error) { return []byte(tokenSecret), nil })
@@ -50,11 +52,11 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 	if err != nil {
 		return uuid.UUID{}, err
 	}
-	id, err := uuid.Parse(idString)
+	userID, err = uuid.Parse(idString)
 	if err != nil {
 		return uuid.UUID{}, err
 	}
-	return id, nil
+	return userID, nil
 }
 
 func GetBearerToken(headers http.Header) (string, error) {
@@ -65,4 +67,10 @@ func GetBearerToken(headers http.Header) (string, error) {
 	}
 
 	return stringToken, nil
+}
+
+func MakeRefreshToken() (string, error) {
+	rawRefreshToken := make([]byte, 32)
+	rand.Read(rawRefreshToken)
+	return hex.EncodeToString(rawRefreshToken), nil
 }

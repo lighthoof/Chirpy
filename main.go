@@ -31,22 +31,25 @@ func main() {
 		dbQueries:      database.New(db),
 		platform:       os.Getenv("PLATFORM"),
 		secret:         os.Getenv("TOKEN_SECRET"),
+		authExpiry:     time.Hour,
 	}
 
 	serveMux := http.NewServeMux()
 	fileServerHandler := http.FileServer(http.Dir(filePathRoot))
 	noPrefixFileHandler := http.StripPrefix("/app/", fileServerHandler)
 	serveMux.Handle("/app/", middlewareLog(cfg.middlewareMetricsInc(noPrefixFileHandler)))
-	serveMux.HandleFunc("GET /api/healthz", readinessHandler)
 	//serveMux.HandleFunc("GET /api/metrics", conf.counterHandler)
 	serveMux.HandleFunc("GET /admin/metrics", cfg.counterHandler)
 	serveMux.HandleFunc("POST /admin/reset", cfg.resetHandler)
 	//serveMux.HandleFunc("POST /api/validate_chirp", validationHandler)
-	serveMux.HandleFunc("POST /api/users", cfg.createUserHandler)
-	serveMux.HandleFunc("POST /api/login", cfg.loginHandler)
-	serveMux.HandleFunc("POST /api/chirps", cfg.createChirpHandler)
+	serveMux.HandleFunc("GET /api/healthz", readinessHandler)
 	serveMux.HandleFunc("GET /api/chirps", cfg.getChirpsHandler)
 	serveMux.HandleFunc("GET /api/chirps/{chirpID}", cfg.getChirpByIdHandler)
+	serveMux.HandleFunc("POST /api/chirps", cfg.createChirpHandler)
+	serveMux.HandleFunc("POST /api/users", cfg.createUserHandler)
+	serveMux.HandleFunc("POST /api/login", cfg.loginHandler)
+	serveMux.HandleFunc("POST /api/refresh", cfg.refreshHandler)
+	serveMux.HandleFunc("POST /api/revoke", cfg.revokeHandler)
 
 	server := &http.Server{
 		Handler: serveMux,
@@ -66,11 +69,11 @@ type User struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
 	Token     string    `json:"token"`
+	Refresh   string    `json:"refresh_token"`
 }
 type Auth struct {
-	Password           string `json:"password"`
-	Email              string `json:"email"`
-	Expires_in_seconds time.Duration
+	Password string `json:"password"`
+	Email    string `json:"email"`
 }
 
 type Chirp struct {

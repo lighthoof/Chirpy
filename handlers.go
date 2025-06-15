@@ -20,6 +20,7 @@ type apiConfig struct {
 	dbQueries      *database.Queries
 	platform       string
 	secret         string
+	authExpiry     time.Duration
 }
 
 func (cfg *apiConfig) counterHandler(w http.ResponseWriter, req *http.Request) {
@@ -117,18 +118,18 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	expiry := time.Duration(0)
-	if reqBody.Expires_in_seconds*time.Second == time.Duration(0*time.Second) {
-		expiry = time.Hour
-	} else if reqBody.Expires_in_seconds*time.Second > time.Hour {
-		expiry = time.Hour
-	} else {
-		expiry = reqBody.Expires_in_seconds * time.Second
-	}
-
-	token, err := auth.MakeJWT(userDb.ID, cfg.secret, expiry)
+	token, err := auth.MakeJWT(userDb.ID, cfg.secret, cfg.authExpiry)
 	if err != nil {
 		log.Printf("Unable to create token for user: %s", userDb.ID)
+		return
+	}
+
+	refreshToken, _ := auth.MakeRefreshToken()
+	refreshTokenDb, err := cfg.dbQueries.StoreRefreshToken(req.Context(),
+		database.StoreRefreshTokenParams{Token: refreshToken, UserID: userDb.ID},
+	)
+	if err != nil {
+		log.Printf("Unable to store new refresh token %s %s [%s]", req.Method, req.URL.Path, err)
 		return
 	}
 
@@ -138,6 +139,7 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, req *http.Request) {
 		UpdatedAt: userDb.UpdatedAt,
 		Email:     userDb.Email,
 		Token:     token,
+		Refresh:   refreshTokenDb.Token,
 	}
 
 	respondWithJSON(w, http.StatusOK, user)
@@ -163,9 +165,12 @@ func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, req *http.Reques
 		log.Printf("Unable to get the token from request header: %s %s [%s]", req.Method, req.URL.Path, err)
 		return
 	}
+
+	log.Print(stringToken)
 	reqBody.UserID, err = auth.ValidateJWT(stringToken, cfg.secret)
 	if err != nil {
 		log.Printf("Unable to validate the token: %s %s [%s]", req.Method, req.URL.Path, err)
+		respondWithError(w, http.StatusUnauthorized, "")
 		return
 	}
 
@@ -239,4 +244,47 @@ func (cfg *apiConfig) getChirpByIdHandler(w http.ResponseWriter, req *http.Reque
 	}
 
 	respondWithJSON(w, http.StatusOK, respBody)
+}
+
+func (cfg *apiConfig) refreshHandler(w http.ResponseWriter, req *http.Request) {
+	stringRefreshToken, err := auth.GetBearerToken((req.Header))
+	if err != nil {
+		log.Printf("Unable to get the token from request header: %s %s [%s]", req.Method, req.URL.Path, err)
+		return
+	}
+
+	//log.Printf("Token from header: %s", stringRefreshToken)
+	userID, err := cfg.dbQueries.GetUserFromRefreshToken(req.Context(), stringRefreshToken)
+	if err != nil {
+		log.Printf("Unable to get user by refresh token: %s %s [%s]", req.Method, req.URL.Path, err)
+		respondWithError(w, http.StatusUnauthorized, "Refresh token expired or does not exist")
+		return
+	}
+
+	newAuthToken, err := auth.MakeJWT(userID, cfg.secret, cfg.authExpiry)
+	if err != nil {
+		log.Printf("Unable to create token for user: %s", userID)
+		return
+	}
+	respondWithJSON(w, http.StatusOK, struct {
+		Token string `json:"token"`
+	}{Token: newAuthToken})
+
+}
+
+func (cfg *apiConfig) revokeHandler(w http.ResponseWriter, req *http.Request) {
+	stringRefreshToken, err := auth.GetBearerToken((req.Header))
+	if err != nil {
+		log.Printf("Unable to get the token from request header: %s %s [%s]", req.Method, req.URL.Path, err)
+		return
+	}
+
+	err = cfg.dbQueries.RevokeRefershToken(req.Context(), stringRefreshToken)
+	if err != nil {
+		log.Printf("Unable to revoke the token from request header: %s %s [%s]", req.Method, req.URL.Path, err)
+		respondWithError(w, http.StatusInternalServerError, "Token revokation unsuccessful")
+		return
+	}
+
+	respondWithJSON(w, http.StatusNoContent, "")
 }
