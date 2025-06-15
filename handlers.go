@@ -8,8 +8,10 @@ import (
 	"net/http"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/lighthoof/Chirpy/internal/auth"
 	"github.com/lighthoof/Chirpy/internal/database"
 )
 
@@ -17,6 +19,7 @@ type apiConfig struct {
 	fileserverHits atomic.Int32
 	dbQueries      *database.Queries
 	platform       string
+	secret         string
 }
 
 func (cfg *apiConfig) counterHandler(w http.ResponseWriter, req *http.Request) {
@@ -45,9 +48,7 @@ func readinessHandler(w http.ResponseWriter, req *http.Request) {
 }
 
 func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, req *http.Request) {
-	reqBody := struct {
-		Email string `json:"email"`
-	}{}
+	reqBody := Auth{}
 
 	data, err := io.ReadAll(req.Body)
 	if err != nil {
@@ -65,20 +66,81 @@ func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, req *http.Request
 		return
 	}
 
-	usrDb, err := cfg.dbQueries.CreateUser(req.Context(), reqBody.Email)
+	reqBody.Password, err = auth.HashPassword(reqBody.Password)
+	if err != nil {
+		log.Printf("Unable to hash the password: %s", err)
+		return
+	}
+
+	userDb, err := cfg.dbQueries.CreateUser(req.Context(),
+		database.CreateUserParams{Email: reqBody.Email, HashedPassword: reqBody.Password})
 	if err != nil {
 		log.Printf("Unable to create user with the e-mail: %s %s [%s]", req.Method, req.URL.Path, reqBody.Email)
 		return
 	}
 
 	user := User{
-		ID:        usrDb.ID,
-		CreatedAt: usrDb.CreatedAt,
-		UpdatedAt: usrDb.UpdatedAt,
-		Email:     usrDb.Email,
+		ID:        userDb.ID,
+		CreatedAt: userDb.CreatedAt,
+		UpdatedAt: userDb.UpdatedAt,
+		Email:     userDb.Email,
 	}
 
 	respondWithJSON(w, http.StatusCreated, user)
+}
+
+func (cfg *apiConfig) loginHandler(w http.ResponseWriter, req *http.Request) {
+	reqBody := Auth{}
+
+	data, err := io.ReadAll(req.Body)
+	if err != nil {
+		log.Printf("Unable to read the request body: %s %s", req.Method, req.URL.Path)
+		return
+	}
+
+	err = json.Unmarshal(data, &reqBody)
+	if err != nil {
+		log.Printf("Unable to unmarshal the request: %s %s", req.Method, req.URL.Path)
+		return
+	}
+
+	userDb, err := cfg.dbQueries.GetUserByEmail(req.Context(), reqBody.Email)
+	if err != nil {
+		log.Printf("Unable to retrieve user with the e-mail: %s %s [%s]", req.Method, req.URL.Path, reqBody.Email)
+		return
+	}
+
+	err = auth.CheckPasswordHash(userDb.HashedPassword, reqBody.Password)
+	if err != nil {
+		log.Printf("Incorrect email or password: %s %s [%s]", req.Method, req.URL.Path, err)
+		respondWithError(w, http.StatusUnauthorized, "Incorrect email or password")
+		return
+	}
+
+	expiry := time.Duration(0)
+	if reqBody.Expires_in_seconds*time.Second == time.Duration(0*time.Second) {
+		expiry = time.Hour
+	} else if reqBody.Expires_in_seconds*time.Second > time.Hour {
+		expiry = time.Hour
+	} else {
+		expiry = reqBody.Expires_in_seconds * time.Second
+	}
+
+	token, err := auth.MakeJWT(userDb.ID, cfg.secret, expiry)
+	if err != nil {
+		log.Printf("Unable to create token for user: %s", userDb.ID)
+		return
+	}
+
+	user := User{
+		ID:        userDb.ID,
+		CreatedAt: userDb.CreatedAt,
+		UpdatedAt: userDb.UpdatedAt,
+		Email:     userDb.Email,
+		Token:     token,
+	}
+
+	respondWithJSON(w, http.StatusOK, user)
 }
 
 func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, req *http.Request) {
@@ -96,13 +158,24 @@ func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	stringToken, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		log.Printf("Unable to get the token from request header: %s %s [%s]", req.Method, req.URL.Path, err)
+		return
+	}
+	reqBody.UserID, err = auth.ValidateJWT(stringToken, cfg.secret)
+	if err != nil {
+		log.Printf("Unable to validate the token: %s %s [%s]", req.Method, req.URL.Path, err)
+		return
+	}
+
 	if len(reqBody.Body) <= 140 {
 		reqBody.Body = wordFilter(reqBody.Body)
-
 		chirpDb, err := cfg.dbQueries.CreateChirp(req.Context(),
 			database.CreateChirpParams{Body: reqBody.Body, UserID: reqBody.UserID})
 		if err != nil {
 			log.Printf("Unable to create chirp: %s %s [%s]", req.Method, req.URL.Path, err)
+			respondWithError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 

@@ -30,6 +30,7 @@ func main() {
 		fileserverHits: atomic.Int32{},
 		dbQueries:      database.New(db),
 		platform:       os.Getenv("PLATFORM"),
+		secret:         os.Getenv("TOKEN_SECRET"),
 	}
 
 	serveMux := http.NewServeMux()
@@ -42,6 +43,7 @@ func main() {
 	serveMux.HandleFunc("POST /admin/reset", cfg.resetHandler)
 	//serveMux.HandleFunc("POST /api/validate_chirp", validationHandler)
 	serveMux.HandleFunc("POST /api/users", cfg.createUserHandler)
+	serveMux.HandleFunc("POST /api/login", cfg.loginHandler)
 	serveMux.HandleFunc("POST /api/chirps", cfg.createChirpHandler)
 	serveMux.HandleFunc("GET /api/chirps", cfg.getChirpsHandler)
 	serveMux.HandleFunc("GET /api/chirps/{chirpID}", cfg.getChirpByIdHandler)
@@ -63,6 +65,12 @@ type User struct {
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Email     string    `json:"email"`
+	Token     string    `json:"token"`
+}
+type Auth struct {
+	Password           string `json:"password"`
+	Email              string `json:"email"`
+	Expires_in_seconds time.Duration
 }
 
 type Chirp struct {
