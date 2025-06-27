@@ -90,6 +90,67 @@ func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, req *http.Request
 	respondWithJSON(w, http.StatusCreated, user)
 }
 
+func (cfg *apiConfig) updateUserHandler(w http.ResponseWriter, req *http.Request) {
+	reqBody := Auth{}
+
+	data, err := io.ReadAll(req.Body)
+	if err != nil {
+		log.Printf("Unable to read the request body: %s %s", req.Method, req.URL.Path)
+		return
+	}
+	err = json.Unmarshal(data, &reqBody)
+	if err != nil {
+		log.Printf("Unable to unmarshal the request: %s %s", req.Method, req.URL.Path)
+		return
+	}
+
+	stringToken, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		log.Printf("Unable to get the token from request header: %s %s [%s]", req.Method, req.URL.Path, err)
+		respondWithError(w, http.StatusUnauthorized, "")
+		return
+	}
+
+	UserID, err := auth.ValidateJWT(stringToken, cfg.secret)
+	if err != nil {
+		log.Printf("Unable to validate the token: %s %s [%s]", req.Method, req.URL.Path, err)
+		respondWithError(w, http.StatusUnauthorized, "")
+		return
+	}
+
+	if len(strings.Split(reqBody.Email, "@")) < 2 {
+		log.Printf("Invalid e-mail: %s", reqBody.Email)
+		return
+	}
+
+	reqBody.Password, err = auth.HashPassword(reqBody.Password)
+	if err != nil {
+		log.Printf("Unable to hash the password: %s", err)
+		return
+	}
+
+	updateUser := database.UpdateUserParams{
+		Email:          reqBody.Email,
+		HashedPassword: reqBody.Password,
+		ID:             UserID,
+	}
+
+	userDb, err := cfg.dbQueries.UpdateUser(req.Context(), updateUser)
+	if err != nil {
+		log.Printf("Unable to update user e-mail and password: %s %s [%s]", req.Method, req.URL.Path, err)
+		return
+	}
+
+	user := User{
+		ID:        userDb.ID,
+		CreatedAt: userDb.CreatedAt,
+		UpdatedAt: userDb.UpdatedAt,
+		Email:     userDb.Email,
+	}
+
+	respondWithJSON(w, http.StatusOK, user)
+}
+
 func (cfg *apiConfig) loginHandler(w http.ResponseWriter, req *http.Request) {
 	reqBody := Auth{}
 
@@ -166,7 +227,6 @@ func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, req *http.Reques
 		return
 	}
 
-	log.Print(stringToken)
 	reqBody.UserID, err = auth.ValidateJWT(stringToken, cfg.secret)
 	if err != nil {
 		log.Printf("Unable to validate the token: %s %s [%s]", req.Method, req.URL.Path, err)

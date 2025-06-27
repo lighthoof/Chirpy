@@ -61,6 +61,9 @@ func ValidateJWT(tokenString, tokenSecret string) (userID uuid.UUID, err error) 
 
 func GetBearerToken(headers http.Header) (string, error) {
 	authHeader := headers["Authorization"]
+	if len(authHeader) == 0 {
+		return "", fmt.Errorf("malformed authentication token")
+	}
 	prefix, stringToken, _ := strings.Cut(authHeader[0], " ")
 	if prefix != "Bearer" {
 		return "", fmt.Errorf("invalid authentication token: %v", authHeader[0])
