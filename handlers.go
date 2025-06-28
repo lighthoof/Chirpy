@@ -1,9 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -51,16 +49,8 @@ func readinessHandler(w http.ResponseWriter, req *http.Request) {
 func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, req *http.Request) {
 	reqBody := Auth{}
 
-	data, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.Printf("Unable to read the request body: %s %s", req.Method, req.URL.Path)
-		return
-	}
-	err = json.Unmarshal(data, &reqBody)
-	if err != nil {
-		log.Printf("Unable to unmarshal the request: %s %s", req.Method, req.URL.Path)
-		return
-	}
+	var err error = nil
+	_ = unmarshalType(req, &reqBody)
 
 	if len(strings.Split(reqBody.Email, "@")) < 2 {
 		log.Printf("Invalid e-mail: %s", reqBody.Email)
@@ -93,16 +83,7 @@ func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, req *http.Request
 func (cfg *apiConfig) updateUserHandler(w http.ResponseWriter, req *http.Request) {
 	reqBody := Auth{}
 
-	data, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.Printf("Unable to read the request body: %s %s", req.Method, req.URL.Path)
-		return
-	}
-	err = json.Unmarshal(data, &reqBody)
-	if err != nil {
-		log.Printf("Unable to unmarshal the request: %s %s", req.Method, req.URL.Path)
-		return
-	}
+	_ = unmarshalType(req, &reqBody)
 
 	stringToken, err := auth.GetBearerToken(req.Header)
 	if err != nil {
@@ -154,17 +135,7 @@ func (cfg *apiConfig) updateUserHandler(w http.ResponseWriter, req *http.Request
 func (cfg *apiConfig) loginHandler(w http.ResponseWriter, req *http.Request) {
 	reqBody := Auth{}
 
-	data, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.Printf("Unable to read the request body: %s %s", req.Method, req.URL.Path)
-		return
-	}
-
-	err = json.Unmarshal(data, &reqBody)
-	if err != nil {
-		log.Printf("Unable to unmarshal the request: %s %s", req.Method, req.URL.Path)
-		return
-	}
+	_ = unmarshalType(req, &reqBody)
 
 	userDb, err := cfg.dbQueries.GetUserByEmail(req.Context(), reqBody.Email)
 	if err != nil {
@@ -209,17 +180,7 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, req *http.Request) {
 func (cfg *apiConfig) createChirpHandler(w http.ResponseWriter, req *http.Request) {
 	reqBody := Chirp{}
 
-	data, err := io.ReadAll(req.Body)
-	if err != nil {
-		log.Printf("Unable to read the request body: %s %s", req.Method, req.URL.Path)
-		return
-	}
-
-	err = json.Unmarshal(data, &reqBody)
-	if err != nil {
-		log.Printf("Unable to unmarshal the request: %s %s", req.Method, req.URL.Path)
-		return
-	}
+	_ = unmarshalType(req, &reqBody)
 
 	stringToken, err := auth.GetBearerToken(req.Header)
 	if err != nil {
@@ -306,6 +267,22 @@ func (cfg *apiConfig) getChirpByIdHandler(w http.ResponseWriter, req *http.Reque
 	respondWithJSON(w, http.StatusOK, respBody)
 }
 
+func (cfg *apiConfig) deleteChirpByIdHandler(w http.ResponseWriter, req *http.Request) {
+	chirpID, err := uuid.Parse(req.PathValue("chirpID"))
+	if err != nil {
+		log.Printf("Unable to parse chirpID: %s", req.PathValue("chirpID"))
+		return
+	}
+
+	err = cfg.dbQueries.DeleteChirpById(req.Context(), chirpID)
+	if err != nil {
+		log.Printf("Unable to retrieve chirps")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, "")
+}
+
 func (cfg *apiConfig) refreshHandler(w http.ResponseWriter, req *http.Request) {
 	stringRefreshToken, err := auth.GetBearerToken((req.Header))
 	if err != nil {
@@ -313,7 +290,6 @@ func (cfg *apiConfig) refreshHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	//log.Printf("Token from header: %s", stringRefreshToken)
 	userID, err := cfg.dbQueries.GetUserFromRefreshToken(req.Context(), stringRefreshToken)
 	if err != nil {
 		log.Printf("Unable to get user by refresh token: %s %s [%s]", req.Method, req.URL.Path, err)

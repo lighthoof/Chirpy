@@ -51,6 +51,7 @@ func main() {
 	serveMux.HandleFunc("POST /api/refresh", cfg.refreshHandler)
 	serveMux.HandleFunc("POST /api/revoke", cfg.revokeHandler)
 	serveMux.HandleFunc("PUT /api/users", cfg.updateUserHandler)
+	serveMux.HandleFunc("DELETE /api/chirps/{chirpID}", cfg.deleteChirpByIdHandler)
 
 	server := &http.Server{
 		Handler: serveMux,
