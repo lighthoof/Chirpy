@@ -38,20 +38,19 @@ func main() {
 	fileServerHandler := http.FileServer(http.Dir(filePathRoot))
 	noPrefixFileHandler := http.StripPrefix("/app/", fileServerHandler)
 	serveMux.Handle("/app/", middlewareLog(cfg.middlewareMetricsInc(noPrefixFileHandler)))
-	//serveMux.HandleFunc("GET /api/metrics", conf.counterHandler)
 	serveMux.HandleFunc("GET /admin/metrics", cfg.counterHandler)
 	serveMux.HandleFunc("POST /admin/reset", cfg.resetHandler)
-	//serveMux.HandleFunc("POST /api/validate_chirp", validationHandler)
 	serveMux.HandleFunc("GET /api/healthz", readinessHandler)
 	serveMux.HandleFunc("GET /api/chirps", cfg.getChirpsHandler)
 	serveMux.HandleFunc("GET /api/chirps/{chirpID}", cfg.getChirpByIdHandler)
 	serveMux.HandleFunc("POST /api/chirps", cfg.createChirpHandler)
 	serveMux.HandleFunc("POST /api/users", cfg.createUserHandler)
 	serveMux.HandleFunc("POST /api/login", cfg.loginHandler)
+	serveMux.HandleFunc("POST /api/polka/webhooks", cfg.userUpgradeHandler)
 	serveMux.HandleFunc("POST /api/refresh", cfg.refreshHandler)
 	serveMux.HandleFunc("POST /api/revoke", cfg.revokeHandler)
 	serveMux.HandleFunc("PUT /api/users", cfg.updateUserHandler)
-	serveMux.HandleFunc("DELETE /api/chirps/{chirpID}", cfg.deleteChirpByIdHandler)
+	serveMux.HandleFunc("DELETE /api/chirps/{chirpID}", cfg.deleteChirpHandler)
 
 	server := &http.Server{
 		Handler: serveMux,
@@ -66,12 +65,13 @@ func main() {
 }
 
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-	Token     string    `json:"token"`
-	Refresh   string    `json:"refresh_token"`
+	ID          uuid.UUID `json:"id"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	Email       string    `json:"email"`
+	Token       string    `json:"token"`
+	Refresh     string    `json:"refresh_token"`
+	IsChirpyRed bool      `json:"is_chirpy_red"`
 }
 type Auth struct {
 	Password string `json:"password"`
@@ -84,4 +84,13 @@ type Chirp struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Body      string    `json:"body"`
 	UserID    uuid.UUID `json:"user_id"`
+}
+
+type Event struct {
+	Event string `json:"event"`
+	Data  Data   `json:"data"`
+}
+
+type Data struct {
+	User_id string `json:"user_id"`
 }

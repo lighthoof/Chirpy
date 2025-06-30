@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -71,10 +72,11 @@ func (cfg *apiConfig) createUserHandler(w http.ResponseWriter, req *http.Request
 	}
 
 	user := User{
-		ID:        userDb.ID,
-		CreatedAt: userDb.CreatedAt,
-		UpdatedAt: userDb.UpdatedAt,
-		Email:     userDb.Email,
+		ID:          userDb.ID,
+		CreatedAt:   userDb.CreatedAt,
+		UpdatedAt:   userDb.UpdatedAt,
+		Email:       userDb.Email,
+		IsChirpyRed: userDb.IsChirpyRed,
 	}
 
 	respondWithJSON(w, http.StatusCreated, user)
@@ -123,13 +125,49 @@ func (cfg *apiConfig) updateUserHandler(w http.ResponseWriter, req *http.Request
 	}
 
 	user := User{
-		ID:        userDb.ID,
-		CreatedAt: userDb.CreatedAt,
-		UpdatedAt: userDb.UpdatedAt,
-		Email:     userDb.Email,
+		ID:          userDb.ID,
+		CreatedAt:   userDb.CreatedAt,
+		UpdatedAt:   userDb.UpdatedAt,
+		Email:       userDb.Email,
+		IsChirpyRed: userDb.IsChirpyRed,
 	}
 
 	respondWithJSON(w, http.StatusOK, user)
+}
+
+func (cfg *apiConfig) userUpgradeHandler(w http.ResponseWriter, req *http.Request) {
+	reqBody := Event{}
+
+	_ = unmarshalType(req, &reqBody)
+	if reqBody.Event != "user.upgraded" {
+		log.Printf("Unknown event: %s %s [%s]", req.Method, req.URL.Path, reqBody.Event)
+		respondWithJSON(w, http.StatusNoContent, "")
+	}
+
+	/*log.Print("####################")
+	log.Print(reqBody.Data.User_id)
+	log.Print("####################")*/
+	userID, err := uuid.Parse(reqBody.Data.User_id)
+	if err != nil {
+		log.Printf("Unable to parse userID: %s", reqBody.Data.User_id)
+		return
+	}
+
+	userDb, err := cfg.dbQueries.UpgradeUser(req.Context(), userID)
+	log.Print("####################")
+	log.Printf("user - %s, Red status - %v : %v", userDb.Email, userDb.IsChirpyRed, err)
+	log.Print("####################")
+	if err == sql.ErrNoRows {
+		log.Printf("User not found")
+		respondWithError(w, http.StatusNotFound, "")
+		return
+	} else if err != nil {
+		log.Printf("Unable to upgrade user: %s", userDb.ID)
+		respondWithError(w, http.StatusInternalServerError, "")
+		return
+	}
+
+	respondWithJSON(w, http.StatusNoContent, "")
 }
 
 func (cfg *apiConfig) loginHandler(w http.ResponseWriter, req *http.Request) {
@@ -166,12 +204,13 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	user := User{
-		ID:        userDb.ID,
-		CreatedAt: userDb.CreatedAt,
-		UpdatedAt: userDb.UpdatedAt,
-		Email:     userDb.Email,
-		Token:     token,
-		Refresh:   refreshTokenDb.Token,
+		ID:          userDb.ID,
+		CreatedAt:   userDb.CreatedAt,
+		UpdatedAt:   userDb.UpdatedAt,
+		Email:       userDb.Email,
+		Token:       token,
+		Refresh:     refreshTokenDb.Token,
+		IsChirpyRed: userDb.IsChirpyRed,
 	}
 
 	respondWithJSON(w, http.StatusOK, user)
@@ -225,7 +264,11 @@ func (cfg *apiConfig) getChirpsHandler(w http.ResponseWriter, req *http.Request)
 	respBody := []Chirp{}
 
 	chirpsDb, err := cfg.dbQueries.GetChirps(req.Context())
-	if err != nil {
+	if err == sql.ErrNoRows {
+		log.Printf("No chirps not found")
+		respondWithError(w, http.StatusNotFound, "")
+		return
+	} else if err != nil {
 		log.Printf("Unable to retrieve chirps")
 		return
 	}
@@ -251,8 +294,12 @@ func (cfg *apiConfig) getChirpByIdHandler(w http.ResponseWriter, req *http.Reque
 	}
 
 	chirpDb, err := cfg.dbQueries.GetChirpById(req.Context(), chirpID)
-	if err != nil {
-		log.Printf("Unable to retrieve chirps")
+	if err == sql.ErrNoRows {
+		log.Printf("Chirp not found")
+		respondWithError(w, http.StatusNotFound, "")
+		return
+	} else if err != nil {
+		log.Printf("Unable to retrieve chirp")
 		return
 	}
 
@@ -267,20 +314,55 @@ func (cfg *apiConfig) getChirpByIdHandler(w http.ResponseWriter, req *http.Reque
 	respondWithJSON(w, http.StatusOK, respBody)
 }
 
-func (cfg *apiConfig) deleteChirpByIdHandler(w http.ResponseWriter, req *http.Request) {
+func (cfg *apiConfig) deleteChirpHandler(w http.ResponseWriter, req *http.Request) {
+	reqBody := Auth{}
+
+	_ = unmarshalType(req, &reqBody)
+
+	stringToken, err := auth.GetBearerToken(req.Header)
+	if err != nil {
+		log.Printf("Unable to get the token from request header: %s %s [%s]", req.Method, req.URL.Path, err)
+		respondWithError(w, http.StatusUnauthorized, "")
+		return
+	}
+
+	UserID, err := auth.ValidateJWT(stringToken, cfg.secret)
+	if err != nil {
+		log.Printf("Unable to validate the token: %s %s [%s]", req.Method, req.URL.Path, err)
+		respondWithError(w, http.StatusUnauthorized, "")
+		return
+	}
+
 	chirpID, err := uuid.Parse(req.PathValue("chirpID"))
 	if err != nil {
 		log.Printf("Unable to parse chirpID: %s", req.PathValue("chirpID"))
 		return
 	}
 
-	err = cfg.dbQueries.DeleteChirpById(req.Context(), chirpID)
-	if err != nil {
-		log.Printf("Unable to retrieve chirps")
+	chirpDb, err := cfg.dbQueries.GetChirpById(req.Context(), chirpID)
+	if err == sql.ErrNoRows {
+		log.Printf("Chirp not found")
+		respondWithError(w, http.StatusNotFound, "")
+		return
+	} else if err != nil {
+		log.Printf("Unable to retrieve chirp: %s", chirpDb.ID)
+		respondWithError(w, http.StatusInternalServerError, "")
 		return
 	}
 
-	respondWithJSON(w, http.StatusOK, "")
+	if chirpDb.UserID != UserID {
+		log.Printf("Unable to validate user")
+		respondWithError(w, http.StatusForbidden, "")
+		return
+	}
+
+	err = cfg.dbQueries.DeleteChirpById(req.Context(), chirpID)
+	if err != nil {
+		log.Printf("Unable to delete chirp")
+		return
+	}
+
+	respondWithJSON(w, http.StatusNoContent, "")
 }
 
 func (cfg *apiConfig) refreshHandler(w http.ResponseWriter, req *http.Request) {
