@@ -77,3 +77,17 @@ func MakeRefreshToken() (string, error) {
 	rand.Read(rawRefreshToken)
 	return hex.EncodeToString(rawRefreshToken), nil
 }
+
+func GetAPIKey(headers http.Header) (string, error) {
+	authHeader := headers["Authorization"]
+	if len(authHeader) == 0 {
+		return "", fmt.Errorf("malformed authentication key")
+	}
+
+	prefix, APIKey, _ := strings.Cut(authHeader[0], " ")
+	if prefix != "ApiKey" {
+		return "", fmt.Errorf("invalid authentication key: %v", authHeader[0])
+	}
+
+	return APIKey, nil
+}

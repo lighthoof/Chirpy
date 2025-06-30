@@ -20,6 +20,7 @@ type apiConfig struct {
 	platform       string
 	secret         string
 	authExpiry     time.Duration
+	polkaAPIKey    string
 }
 
 func (cfg *apiConfig) counterHandler(w http.ResponseWriter, req *http.Request) {
@@ -138,15 +139,24 @@ func (cfg *apiConfig) updateUserHandler(w http.ResponseWriter, req *http.Request
 func (cfg *apiConfig) userUpgradeHandler(w http.ResponseWriter, req *http.Request) {
 	reqBody := Event{}
 
+	reqAPIKey, err := auth.GetAPIKey(req.Header)
+	if err != nil {
+		log.Printf("Unable to parse Polka API Key: %s", req.Header["Authorization"])
+		respondWithError(w, http.StatusUnauthorized, "")
+		return
+	}
+	if reqAPIKey != cfg.polkaAPIKey {
+		log.Printf("Inkorrect Polka API Key: %s", req.Header["Authorization"])
+		respondWithError(w, http.StatusUnauthorized, "")
+		return
+	}
+
 	_ = unmarshalType(req, &reqBody)
 	if reqBody.Event != "user.upgraded" {
 		log.Printf("Unknown event: %s %s [%s]", req.Method, req.URL.Path, reqBody.Event)
 		respondWithJSON(w, http.StatusNoContent, "")
 	}
 
-	/*log.Print("####################")
-	log.Print(reqBody.Data.User_id)
-	log.Print("####################")*/
 	userID, err := uuid.Parse(reqBody.Data.User_id)
 	if err != nil {
 		log.Printf("Unable to parse userID: %s", reqBody.Data.User_id)
@@ -154,9 +164,6 @@ func (cfg *apiConfig) userUpgradeHandler(w http.ResponseWriter, req *http.Reques
 	}
 
 	userDb, err := cfg.dbQueries.UpgradeUser(req.Context(), userID)
-	log.Print("####################")
-	log.Printf("user - %s, Red status - %v : %v", userDb.Email, userDb.IsChirpyRed, err)
-	log.Print("####################")
 	if err == sql.ErrNoRows {
 		log.Printf("User not found")
 		respondWithError(w, http.StatusNotFound, "")

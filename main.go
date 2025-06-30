@@ -32,6 +32,7 @@ func main() {
 		platform:       os.Getenv("PLATFORM"),
 		secret:         os.Getenv("TOKEN_SECRET"),
 		authExpiry:     time.Hour,
+		polkaAPIKey:    os.Getenv("POLKA_KEY"),
 	}
 
 	serveMux := http.NewServeMux()

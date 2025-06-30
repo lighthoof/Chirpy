@@ -67,7 +67,6 @@ func TestTokenTimeout(t *testing.T) {
 		return
 	}
 	_, err = ValidateJWT(token, tokenSecret)
-	//t.Fatal(err)
 	if err.Error() != "token has invalid claims: token is expired" {
 		t.Fatal("Timed out token was validated!")
 	}
